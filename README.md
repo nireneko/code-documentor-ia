@@ -1,6 +1,5 @@
-### Create environment from scratch
-
-For WSL: https://gist.github.com/kauffmanes/5e74916617f9993bc3479f401dfec7da
+# POC
+Don't use this in production.
 
 ```bash
 conda create -n fastapi python=3.11
@@ -13,5 +12,5 @@ conda env export > environment.yml
 
 ```bash
 conda env create -f environment.yml
-fastapi dev main.py
+fastapi dev app/analyze.py
 ```
