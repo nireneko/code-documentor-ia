@@ -76,7 +76,7 @@ def unzip_file(zip_path: Path, dest_dir: Path):
         raise HTTPException(status_code=400, detail="Archivo ZIP corrupto o inválido")
 
 @app.get("/analyze")
-async def analyze(file: str = Query(..., description="URL del archivo ZIP a analizar")):
+async def analyze(file: str = Query(..., description="URL of the zip file to analyze")):
     # Generar UUID único
     uuid_str = str(uuid.uuid4())
     
@@ -163,7 +163,7 @@ async def analyze_uuid(uuid: str):
         return {
             "uuid": uuid,
             "status": "analyzed",
-            "documentation-overview": result.get("analysis", "")
+            "zip_path": result.get("zip_path", "")
         }
         
     except Exception as e:

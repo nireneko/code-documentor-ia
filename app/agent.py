@@ -6,6 +6,9 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 import operator
 from dotenv import load_dotenv
+import os
+import re
+import shutil
 
 load_dotenv()
 
@@ -18,6 +21,8 @@ class State(TypedDict):
     code: str
     file: str
     final_documentation: str
+    overview: str
+    zip_path: str
 
 class CodeDoc(BaseModel):
     """Documentation of the given code"""
@@ -47,6 +52,15 @@ def read_directory_recursive(directory: Path):
                 print(f"Error al leer {element}: {e}")
     return contenidos
 
+# Función para transformar el nombre del archivo
+def transformar_nombre(nombre_original):
+    # Separa el nombre y la extensión
+    name_without_ext, _ = os.path.splitext(nombre_original)
+    # Inserta un guión bajo antes de cada letra mayúscula (excepto la primera)
+    name_con_guion = re.sub(r'(?<!^)(?=[A-Z])', '_', name_without_ext)
+    # Convierte todo a minúsculas y añade la extensión .md
+    return name_con_guion.lower() + '.md'
+
 # Node 1
 def node_read_file_contents(state: State) -> State:
     state["contents"] = read_directory_recursive(Path(state["unzip_path"]))
@@ -63,7 +77,34 @@ def node_llm_request_for_analysis(state: State) -> State:
 def node_generate_documentation(state: State) -> State:
     prompt = code_documentation_prompt.format(text=''.join(state['analysis']))
     response = llm.with_structured_output(CodeDoc).invoke(prompt)
-    return {"analysis": [response.markdown], }
+    return {"overview": [response.markdown], }
+
+def node_save_documentation(state: State) -> State:
+    file_path = os.path.join(state["unzip_path"], "docu", "overview.md")
+    file_path = Path(file_path)
+    os.makedirs(file_path.parent, exist_ok=True)
+    file_path.touch()
+    overview = state['overview'][0]
+    file_path.write_text(overview, encoding='utf-8')
+
+    for content_item, analysis_text in zip(state["contents"], state["analysis"]):
+        nombre = transformar_nombre(content_item["nombre"])
+
+        file_path = os.path.join(state["unzip_path"], "docu", nombre)
+        file_path = Path(file_path)
+        os.makedirs(file_path.parent, exist_ok=True)
+        file_path.touch()
+        file_path.write_text(analysis_text, encoding='utf-8')
+
+    return state
+
+def node_create_zip(state: State) -> State:
+    file_path = os.path.join(state["unzip_path"], "docu")
+    zip_destiny_path = os.path.join(state["unzip_path"], "code_documentation")
+    zip_path = shutil.make_archive(zip_destiny_path, 'zip', file_path)
+    zip_absolute_path = os.path.abspath(zip_path)
+    return {"zip_path": zip_absolute_path}
+
 
 def edge_prepare_code_send(state: State):
     return [Send("node_llm_request_for_analysis", {"code": data["content"], 'file': data["ruta"] + "/" + data["nombre"]}) for data in state["contents"]]
@@ -74,10 +115,14 @@ builder = StateGraph(State)
 builder.add_node("node_read_file_contents", node_read_file_contents)
 builder.add_node("node_llm_request_for_analysis", node_llm_request_for_analysis)
 builder.add_node("node_generate_documentation", node_generate_documentation)
+builder.add_node("node_save_documentation", node_save_documentation)
+builder.add_node("node_create_zip", node_create_zip)
 
 builder.add_edge(START, "node_read_file_contents")
 builder.add_conditional_edges("node_read_file_contents", edge_prepare_code_send, ["node_llm_request_for_analysis"])
 builder.add_edge("node_llm_request_for_analysis", "node_generate_documentation")
-builder.add_edge("node_generate_documentation", END)
+builder.add_edge("node_generate_documentation", "node_save_documentation")
+builder.add_edge("node_save_documentation", "node_create_zip")
+builder.add_edge("node_create_zip", END)
 
 graph = builder.compile()
